@@ -1,0 +1,18 @@
+# Cloudflare Tunnel -- exposes local services without port forwarding.
+#
+# Setup:
+#   1. Create a tunnel at https://one.dash.cloudflare.com/ (Networks > Tunnels).
+#   2. Copy the tunnel token and paste it into .env (see .env.example).
+#   3. In the Cloudflare dashboard, add a public hostname:
+#        e.g. jellyseerr.yourdomain.com -> http://localhost:5055
+#   4. Run:  docker compose up -d
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    network_mode: host

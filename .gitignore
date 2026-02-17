@@ -1,0 +1,17 @@
+# Secrets
+esp32/esp32_wol/config.h
+pc/.env
+cloudflare-worker/.dev.vars
+
+# Arduino build
+esp32/esp32_wol/build/
+esp32/esp32_wol/*.bin
+
+# Node / Wrangler
+cloudflare-worker/node_modules/
+cloudflare-worker/.wrangler/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,7 @@
+name = "wake-server"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Secrets (set via `wrangler secret put`):
+#   TELEGRAM_BOT_TOKEN  - Telegram Bot API token
+#   TELEGRAM_CHAT_ID    - Your numeric Telegram user ID
