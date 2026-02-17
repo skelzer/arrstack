@@ -9,7 +9,10 @@ esp32/esp32_wol/*.bin
 
 # Node / Wrangler
 cloudflare-worker/node_modules/
-cloudflare-worker/.wrangler/
+**/.wrangler/
+
+# IDE
+.theia/
 
 # OS
 .DS_Store

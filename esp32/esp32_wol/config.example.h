@@ -8,13 +8,13 @@
 #define WIFI_SSID     "[INSERT_SSID]"
 #define WIFI_PASS     "[INSERT_PASS]"
 
-// Telegram Bot (create via @BotFather)
-#define BOT_TOKEN     "[INSERT_BOT_TOKEN]"
-
-// Your Telegram numeric user ID (get from @userinfobot)
-#define CHAT_ID       "[INSERT_USER_ID]"
-
 // MAC address of the PC to wake (format: AA:BB:CC:DD:EE:FF)
 #define TARGET_MAC    "[INSERT_MAC_ADDRESS]"
+
+// Cloudflare Worker API endpoint (e.g. "https://wake-api.yourname.workers.dev")
+#define WORKER_URL    "[INSERT_WORKER_API_URL]"
+
+// Shared secret for ESP32 <-> Worker authentication
+#define WORKER_SECRET "[INSERT_WORKER_SECRET]"
 
 #endif

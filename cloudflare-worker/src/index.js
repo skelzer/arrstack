@@ -1,13 +1,17 @@
+const KV_KEY = "wake_pending";
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    // Web UI (protected by Cloudflare Access)
     if (request.method === "GET" && url.pathname === "/") {
       return new Response(HTML_PAGE, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
 
+    // Web button: queue a wake request into KV
     if (request.method === "POST" && url.pathname === "/wake") {
       return handleWake(env);
     }
@@ -17,40 +21,29 @@ export default {
 };
 
 async function handleWake(env) {
-  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = env;
-
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    return Response.json(
-      { ok: false, error: "Server misconfigured: missing Telegram secrets." },
-      { status: 500 }
-    );
-  }
-
   try {
-    const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify({
+      requested: true,
+      timestamp: Date.now(),
+    }));
 
-    const res = await fetch(telegramUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: "/wake",
-      }),
-    });
-
-    const data = await res.json();
-
-    if (!data.ok) {
-      return Response.json(
-        { ok: false, error: `Telegram API error: ${data.description}` },
-        { status: 502 }
-      );
+    // Notify via Telegram so the user sees confirmation
+    const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = env;
+    if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+      fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: "Web wake requested — waiting for ESP32 to pick it up.",
+        }),
+      }).catch(() => {});
     }
 
-    return Response.json({ ok: true, message: "Wake command sent!" });
+    return Response.json({ ok: true, message: "Wake command queued!" });
   } catch (err) {
     return Response.json(
-      { ok: false, error: `Request failed: ${err.message}` },
+      { ok: false, error: `Failed to queue wake: ${err.message}` },
       { status: 500 }
     );
   }

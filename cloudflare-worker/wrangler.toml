@@ -2,6 +2,11 @@ name = "wake-server"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
+[[kv_namespaces]]
+binding = "WAKE_QUEUE"
+id = "e3cd3b3b7bbe424e8843057e56309e28"
+
 # Secrets (set via `wrangler secret put`):
-#   TELEGRAM_BOT_TOKEN  - Telegram Bot API token
-#   TELEGRAM_CHAT_ID    - Your numeric Telegram user ID
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+#   ESP32_SECRET        - shared secret so only the ESP32 can poll /check and /ack

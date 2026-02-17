@@ -1,29 +1,27 @@
 /*
  * ESP32 Wake-on-LAN Controller
  *
- * Polls a Telegram Bot for /wake and /status commands.
- * On /wake, broadcasts a WoL magic packet to wake the target PC.
+ * Polls a Cloudflare Worker for wake commands.
+ * On wake, broadcasts a WoL magic packet to wake the target PC.
  *
  * Board: LilyGO (ESP32-based)
  * Libraries required:
- *   - UniversalTelegramBot (Brian Lough)
  *   - ArduinoJson v6+
  */
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiUDP.h>
-#include <UniversalTelegramBot.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
 
 // ── Timing ──────────────────────────────────────────────────────────
-const unsigned long BOT_POLL_INTERVAL = 1000;  // 1 second
-unsigned long lastPollTime = 0;
+const unsigned long WORKER_POLL_INTERVAL = 5000;  // 5 seconds
+unsigned long lastWorkerPollTime = 0;
 
 // ── Networking objects ──────────────────────────────────────────────
-WiFiClientSecure secured;
-UniversalTelegramBot bot(BOT_TOKEN, secured);
+WiFiClientSecure securedWorker;
 WiFiUDP udp;
 
 // ── WoL constants ───────────────────────────────────────────────────
@@ -62,52 +60,65 @@ void sendWolPacket(const uint8_t* mac) {
   udp.endPacket();
 }
 
-// ── Handle incoming Telegram messages ───────────────────────────────
-void handleMessages(int numMessages) {
-  for (int i = 0; i < numMessages; i++) {
-    String senderId = bot.messages[i].chat_id;
-    String text     = bot.messages[i].text;
+// ── Send WoL and return success ─────────────────────────────────────
+bool doWake() {
+  uint8_t mac[6];
+  if (parseMac(TARGET_MAC, mac)) {
+    sendWolPacket(mac);
+    Serial.println("[WOL] Magic packet sent to " + String(TARGET_MAC));
+    return true;
+  }
+  Serial.println("[WOL] ERROR: could not parse MAC");
+  return false;
+}
 
-    // Security: only respond to the configured owner
-    if (senderId != CHAT_ID) {
-      bot.sendMessage(senderId, "Unauthorized.", "");
-      Serial.println("[TELEGRAM] Rejected message from: " + senderId);
-      continue;
-    }
+// ── Poll Cloudflare Worker for web-triggered wakes ──────────────────
+void pollWorker() {
+  HTTPClient http;
+  String checkUrl = String(WORKER_URL) + "/check";
 
-    Serial.println("[TELEGRAM] Command: " + text);
+  http.begin(securedWorker, checkUrl);
+  http.addHeader("Authorization", String("Bearer ") + WORKER_SECRET);
 
-    if (text == "/wake") {
-      uint8_t mac[6];
-      if (parseMac(TARGET_MAC, mac)) {
-        sendWolPacket(mac);
-        bot.sendMessage(CHAT_ID, "Magic Packet Sent!", "");
-        Serial.println("[WOL] Magic packet sent to " + String(TARGET_MAC));
-      } else {
-        bot.sendMessage(CHAT_ID, "Error: invalid MAC address in config.", "");
-        Serial.println("[WOL] ERROR: could not parse MAC");
+  int httpCode = http.GET();
+  if (httpCode == 200) {
+    String payload = http.getString();
+    StaticJsonDocument<256> doc;
+    DeserializationError err = deserializeJson(doc, payload);
+
+    if (!err && doc["wake"].as<bool>() == true) {
+      Serial.println("[WORKER] Wake request received from web!");
+
+      if (doWake()) {
+        ackWorker();
       }
     }
-    else if (text == "/status") {
-      unsigned long uptimeSec = millis() / 1000;
-      String msg = "ESP32 Online\n";
-      msg += "Uptime: " + String(uptimeSec / 3600) + "h "
-           + String((uptimeSec % 3600) / 60) + "m "
-           + String(uptimeSec % 60) + "s\n";
-      msg += "RSSI: " + String(WiFi.RSSI()) + " dBm\n";
-      msg += "IP: " + WiFi.localIP().toString();
-      bot.sendMessage(CHAT_ID, msg, "");
-    }
-    else if (text == "/start") {
-      String welcome = "Wake-on-LAN Bot\n\n";
-      welcome += "/wake  - Send magic packet to wake the PC\n";
-      welcome += "/status - Show ESP32 uptime and connection info";
-      bot.sendMessage(CHAT_ID, welcome, "");
-    }
-    else {
-      bot.sendMessage(CHAT_ID, "Unknown command. Try /wake or /status", "");
-    }
+  } else if (httpCode > 0) {
+    Serial.println("[WORKER] Check returned HTTP " + String(httpCode));
+  } else {
+    Serial.println("[WORKER] Check failed: " + http.errorToString(httpCode));
   }
+
+  http.end();
+}
+
+// ── Acknowledge a web wake to the Worker ────────────────────────────
+void ackWorker() {
+  HTTPClient http;
+  String ackUrl = String(WORKER_URL) + "/ack";
+
+  http.begin(securedWorker, ackUrl);
+  http.addHeader("Authorization", String("Bearer ") + WORKER_SECRET);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpCode = http.POST("{}");
+  if (httpCode == 200) {
+    Serial.println("[WORKER] Acknowledged web wake");
+  } else {
+    Serial.println("[WORKER] Ack failed: HTTP " + String(httpCode));
+  }
+
+  http.end();
 }
 
 // ── Wi-Fi connection with retry ─────────────────────────────────────
@@ -143,10 +154,10 @@ void setup() {
 
   connectWiFi();
 
-  // Use built-in root CA store for HTTPS to Telegram
-  secured.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+  // Skip full cert verification for Worker (still encrypted, auth via Bearer token)
+  securedWorker.setInsecure();
 
-  Serial.println("[BOT] Ready. Polling Telegram...");
+  Serial.println("[READY] Polling Cloudflare Worker every 5s...");
 }
 
 // ── Main loop ───────────────────────────────────────────────────────
@@ -157,14 +168,11 @@ void loop() {
     connectWiFi();
   }
 
-  // Poll Telegram at the configured interval
   unsigned long now = millis();
-  if (now - lastPollTime >= BOT_POLL_INTERVAL) {
-    lastPollTime = now;
-    int numMessages = bot.getUpdates(bot.last_message_received + 1);
-    while (numMessages) {
-      handleMessages(numMessages);
-      numMessages = bot.getUpdates(bot.last_message_received + 1);
-    }
+
+  // Poll Cloudflare Worker at 5s interval
+  if (now - lastWorkerPollTime >= WORKER_POLL_INTERVAL) {
+    lastWorkerPollTime = now;
+    pollWorker();
   }
 }
