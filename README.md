@@ -4,9 +4,11 @@ Remotely wake a media server PC and securely access services (Seerr) without por
 
 ## How It Works
 
-1. **Wake** -- A Cloudflare Worker (`wake-server`, behind Cloudflare Access) serves a page with a "Wake Server" button. Pressing it writes a `wake_pending` flag into a KV namespace and optionally posts a confirmation to Telegram.
-2. **Poll** -- An always-on ESP32 (LilyGO) polls a second, unauthenticated-by-Access Worker (`wake-api`) every 5 seconds with a Bearer secret. `GET /check` returns the flag; when it is set the ESP32 broadcasts a WoL magic packet on the LAN and clears the flag with `POST /ack`.
+1. **Wake** -- A Cloudflare Worker (`wake-server`, behind Cloudflare Access) serves a page with one button per machine. Pressing a button queues a wake for that machine (its `target` id) into the `wake_pending` object in a KV namespace and optionally posts a confirmation to Telegram.
+2. **Poll** -- An always-on ESP32 (LilyGO) polls a second, unauthenticated-by-Access Worker (`wake-api`) every 5 seconds with a Bearer secret. `GET /check` returns the pending targets; for each one the ESP32 looks up that machine's MAC, broadcasts a WoL magic packet on the LAN, and clears it with `POST /ack`.
 3. **Access** -- The PC boots, starts a Cloudflare Tunnel, and exposes Seerr at `seerr.yourdomain.com`.
+
+> **Adding a machine:** add a `{ id, mac }` entry to `TARGETS` in `esp32/config.h`, add a matching entry to `TARGETS` (and a button) in `cloudflare-worker/src/index.js`, then re-flash the ESP32 and redeploy the worker. The machine must be on the wired LAN with Wake-on-LAN enabled in BIOS and its NIC.
 
 ```
 User -> wake-server Worker -> KV <- wake-api Worker <- ESP32 -> WoL -> PC -> Cloudflare Tunnel -> User
@@ -20,7 +22,7 @@ User -> wake-server Worker -> KV <- wake-api Worker <- ESP32 -> WoL -> PC -> Clo
 
 1. Install the Arduino IDE (or PlatformIO).
 2. Install **ArduinoJson** (v6+) by Benoit Blanchon via Library Manager. The rest (`WiFi`, `WiFiClientSecure`, `WiFiUDP`, `HTTPClient`) ships with the ESP32 core.
-3. Copy `esp32/esp32_wol/config.example.h` to `esp32/esp32_wol/config.h` and fill in Wi-Fi, the target MAC, the `wake-api` Worker URL and the shared secret.
+3. Copy `esp32/esp32_wol/config.example.h` to `esp32/esp32_wol/config.h` and fill in Wi-Fi, the wake targets (an `id` + MAC per machine), the `wake-api` Worker URL and the shared secret.
 4. Flash `esp32/esp32_wol/esp32_wol.ino` to your LilyGO board.
 
 ### Part 2: Cloudflare Workers (`cloudflare-worker/`)
@@ -42,7 +44,7 @@ Two Workers share one KV namespace (binding `WAKE_QUEUE`, create it once with `w
    wrangler deploy
    ```
    This one must **not** be behind Access; it is protected by the Bearer secret only.
-5. `seerr-gate` (optional auto-wake, in `seerr-gate/`): a Worker routed onto the Seerr hostname. It passes traffic through untouched while the tunnel is up; when Cloudflare reports the tunnel unreachable (PC asleep) it sets the same KV wake flag and serves a "waking up" page that reloads into Seerr once it answers. Edit the `routes` entry in its `wrangler.toml` to your hostname and zone, then from `cloudflare-worker/seerr-gate/`:
+5. `seerr-gate` (optional auto-wake, in `seerr-gate/`): a Worker routed onto the Seerr hostname. It passes traffic through untouched while the tunnel is up; when Cloudflare reports the tunnel unreachable (PC asleep) it queues a wake for the `server` target in the same KV object and serves a "waking up" page that reloads into Seerr once it answers. Edit the `routes` entry in its `wrangler.toml` to your hostname and zone, then from `cloudflare-worker/seerr-gate/`:
    ```bash
    wrangler secret put TELEGRAM_BOT_TOKEN   # optional note when a visit triggers a wake
    wrangler secret put TELEGRAM_CHAT_ID
@@ -89,7 +91,7 @@ The *arr stack itself (Sonarr, Radarr, Bazarr, Prowlarr, FlareSolverr, Profilarr
 |---|---|---|
 | `WIFI_SSID` | `esp32/esp32_wol/config.h` | Your Wi-Fi network name |
 | `WIFI_PASS` | `esp32/esp32_wol/config.h` | Your Wi-Fi password |
-| `TARGET_MAC` | `esp32/esp32_wol/config.h` | MAC address of the PC to wake (AA:BB:CC:DD:EE:FF) |
+| `TARGETS[]` | `esp32/esp32_wol/config.h` | List of `{ id, mac }` machines to wake. Each `id` must match a button target in `wake-server` (e.g. `server`, `desktop`). |
 | `WORKER_URL` | `esp32/esp32_wol/config.h` | URL of the `wake-api` Worker (e.g. `https://wake-api.yourname.workers.dev`) |
 | `WORKER_SECRET` | `esp32/esp32_wol/config.h` | Shared secret sent as a Bearer token to `wake-api` |
 | `ESP32_SECRET` | `wake-api` Worker secret | Same value as `WORKER_SECRET` |

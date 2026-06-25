@@ -63,4 +63,5 @@ Once the PC is awake:
 * **WiFi Password:** `[INSERT_PASS]`
 * **Telegram Bot Token:** `[INSERT_BOT_TOKEN]`
 * **Telegram User ID:** `[INSERT_USER_ID]`
-* **Target PC MAC:** `[INSERT_MAC_ADDRESS]` (Format: AA:BB:CC:DD:EE:FF)
+* **Wake targets:** `TARGETS[]` in `esp32/config.h` — one `{ id, mac }` per machine (e.g. `server`, `desktop`). Each `id` must match a button target in `cloudflare-worker/src/index.js`.
+  * Desktop (this PC) Ethernet MAC: `74:56:3C:4E:C8:A8`

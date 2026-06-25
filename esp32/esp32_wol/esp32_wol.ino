@@ -60,15 +60,22 @@ void sendWolPacket(const uint8_t* mac) {
   udp.endPacket();
 }
 
-// ── Send WoL and return success ─────────────────────────────────────
-bool doWake() {
-  uint8_t mac[6];
-  if (parseMac(TARGET_MAC, mac)) {
-    sendWolPacket(mac);
-    Serial.println("[WOL] Magic packet sent to " + String(TARGET_MAC));
-    return true;
+// ── Look up a target id's MAC and send a WoL packet to it ───────────
+bool doWake(const char* targetId) {
+  for (size_t i = 0; i < NUM_TARGETS; i++) {
+    if (strcmp(targetId, TARGETS[i].id) == 0) {
+      uint8_t mac[6];
+      if (parseMac(TARGETS[i].mac, mac)) {
+        sendWolPacket(mac);
+        Serial.println("[WOL] Magic packet sent to " + String(TARGETS[i].id) +
+                       " (" + String(TARGETS[i].mac) + ")");
+        return true;
+      }
+      Serial.println("[WOL] ERROR: could not parse MAC for " + String(targetId));
+      return false;
+    }
   }
-  Serial.println("[WOL] ERROR: could not parse MAC");
+  Serial.println("[WOL] WARN: unknown target id '" + String(targetId) + "'");
   return false;
 }
 
@@ -86,12 +93,19 @@ void pollWorker() {
     StaticJsonDocument<256> doc;
     DeserializationError err = deserializeJson(doc, payload);
 
-    if (!err && doc["wake"].as<bool>() == true) {
-      Serial.println("[WORKER] Wake request received from web!");
+    if (!err) {
+      JsonArray targets = doc["targets"].as<JsonArray>();
+      for (JsonVariant t : targets) {
+        const char* targetId = t.as<const char*>();
+        if (!targetId) continue;
+        Serial.println("[WORKER] Wake request for '" + String(targetId) + "'");
 
-      if (doWake()) {
-        ackWorker();
+        // Ack regardless of MAC-parse outcome so a bad id can't wedge the queue.
+        doWake(targetId);
+        ackWorker(targetId);
       }
+    } else {
+      Serial.println("[WORKER] JSON parse error: " + String(err.c_str()));
     }
   } else if (httpCode > 0) {
     Serial.println("[WORKER] Check returned HTTP " + String(httpCode));
@@ -103,7 +117,7 @@ void pollWorker() {
 }
 
 // ── Acknowledge a web wake to the Worker ────────────────────────────
-void ackWorker() {
+void ackWorker(const char* targetId) {
   HTTPClient http;
   String ackUrl = String(WORKER_URL) + "/ack";
 
@@ -111,11 +125,13 @@ void ackWorker() {
   http.addHeader("Authorization", String("Bearer ") + WORKER_SECRET);
   http.addHeader("Content-Type", "application/json");
 
-  int httpCode = http.POST("{}");
+  String body = String("{\"target\":\"") + targetId + "\"}";
+  int httpCode = http.POST(body);
   if (httpCode == 200) {
-    Serial.println("[WORKER] Acknowledged web wake");
+    Serial.println("[WORKER] Acknowledged wake for " + String(targetId));
   } else {
-    Serial.println("[WORKER] Ack failed: HTTP " + String(httpCode));
+    Serial.println("[WORKER] Ack failed for " + String(targetId) +
+                   ": HTTP " + String(httpCode));
   }
 
   http.end();

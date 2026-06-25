@@ -1,4 +1,11 @@
+// Single KV key holds an object of pending wakes: { "<target>": <timestamp>, ... }
 const KV_KEY = "wake_pending";
+
+// Machines that can be woken. `id` must match a target id in the ESP32 config.
+const TARGETS = [
+  { id: "server",  label: "Media Server" },
+  { id: "desktop", label: "Desktop (this PC)" },
+];
 
 export default {
   async fetch(request, env) {
@@ -13,19 +20,46 @@ export default {
 
     // Web button: queue a wake request into KV
     if (request.method === "POST" && url.pathname === "/wake") {
-      return handleWake(env);
+      return handleWake(request, env);
     }
 
     return new Response("Not Found", { status: 404 });
   },
 };
 
-async function handleWake(env) {
+async function handleWake(request, env) {
   try {
-    await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify({
-      requested: true,
-      timestamp: Date.now(),
-    }));
+    // Which machine? Default to "server" for back-compat.
+    let target = "server";
+    try {
+      const body = await request.json();
+      if (body && body.target) target = String(body.target);
+    } catch {
+      // no/invalid body — use default
+    }
+
+    if (!TARGETS.some((t) => t.id === target)) {
+      return Response.json(
+        { ok: false, error: `Unknown target: ${target}` },
+        { status: 400 }
+      );
+    }
+
+    // Merge into the pending object so multiple machines can be queued at once.
+    const raw = await env.WAKE_QUEUE.get(KV_KEY);
+    let pending = {};
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") pending = parsed;
+      } catch {
+        // ignore corrupt value, start fresh
+      }
+    }
+    pending[target] = Date.now();
+    await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify(pending));
+
+    const label = TARGETS.find((t) => t.id === target).label;
 
     // Notify via Telegram so the user sees confirmation
     const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = env;
@@ -35,12 +69,12 @@ async function handleWake(env) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: TELEGRAM_CHAT_ID,
-          text: "Web wake requested — waiting for ESP32 to pick it up.",
+          text: `Web wake requested for ${label} — waiting for ESP32 to pick it up.`,
         }),
       }).catch(() => {});
     }
 
-    return Response.json({ ok: true, message: "Wake command queued!" });
+    return Response.json({ ok: true, message: `Wake queued for ${label}!` });
   } catch (err) {
     return Response.json(
       { ok: false, error: `Failed to queue wake: ${err.message}` },
@@ -93,6 +127,12 @@ const HTML_PAGE = `<!DOCTYPE html>
       margin-bottom: 2rem;
     }
 
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
     button {
       width: 100%;
       padding: 1rem;
@@ -131,22 +171,32 @@ const HTML_PAGE = `<!DOCTYPE html>
 <body>
   <div class="card">
     <h1>Wake Server</h1>
-    <p class="subtitle">Send a Wake-on-LAN magic packet to the media server.</p>
-    <button id="wakeBtn" onclick="wake()">Wake Server</button>
+    <p class="subtitle">Send a Wake-on-LAN magic packet to a machine.</p>
+    <div class="buttons">
+      <button data-target="server"  data-label="Media Server"      onclick="wake(this)">Wake Media Server</button>
+      <button data-target="desktop" data-label="Desktop (this PC)" onclick="wake(this)">Wake Desktop</button>
+    </div>
     <p id="status" class="status"></p>
   </div>
   <script>
-    async function wake() {
-      const btn    = document.getElementById("wakeBtn");
+    async function wake(btn) {
       const status = document.getElementById("status");
+      const all    = document.querySelectorAll("button");
+      const target = btn.dataset.target;
+      const label  = btn.dataset.label;
+      const original = btn.textContent;
 
-      btn.disabled = true;
+      all.forEach((b) => (b.disabled = true));
       btn.textContent = "Sending...";
-      status.textContent = "Sending wake command...";
+      status.textContent = "Sending wake command to " + label + "...";
       status.className = "status pending";
 
       try {
-        const res  = await fetch("/wake", { method: "POST" });
+        const res  = await fetch("/wake", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target }),
+        });
         const data = await res.json();
 
         if (data.ok) {
@@ -161,8 +211,8 @@ const HTML_PAGE = `<!DOCTYPE html>
         status.className = "status error";
       }
 
-      btn.textContent = "Wake Server";
-      btn.disabled = false;
+      btn.textContent = original;
+      all.forEach((b) => (b.disabled = false));
     }
   </script>
 </body>

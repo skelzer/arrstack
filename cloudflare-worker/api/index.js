@@ -1,18 +1,19 @@
 // Lightweight API Worker for ESP32 polling.
 // NOT behind Cloudflare Access — authenticated via Bearer token only.
 
+// Single KV key holds an object of pending wakes: { "<target>": <timestamp>, ... }
 const KV_KEY = "wake_pending";
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // ESP32 polling: is there a pending wake?
+    // ESP32 polling: which targets have a pending wake?
     if (request.method === "GET" && url.pathname === "/check") {
       return handleCheck(request, env);
     }
 
-    // ESP32 acknowledge: clear the pending wake
+    // ESP32 acknowledge: clear a target's pending wake
     if (request.method === "POST" && url.pathname === "/ack") {
       return handleAck(request, env);
     }
@@ -30,27 +31,55 @@ function authenticateEsp32(request, env) {
   return null;
 }
 
+async function readPending(env) {
+  const raw = await env.WAKE_QUEUE.get(KV_KEY);
+  if (!raw) return {};
+  try {
+    const data = JSON.parse(raw);
+    // Object form: { target: timestamp }
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
 async function handleCheck(request, env) {
   const authErr = authenticateEsp32(request, env);
   if (authErr) return authErr;
 
-  const raw = await env.WAKE_QUEUE.get(KV_KEY);
-  if (!raw) {
-    return Response.json({ wake: false });
-  }
+  const pending = await readPending(env);
+  const targets = Object.keys(pending);
 
-  try {
-    const data = JSON.parse(raw);
-    return Response.json({ wake: !!data.requested, timestamp: data.timestamp });
-  } catch {
-    return Response.json({ wake: false });
-  }
+  // `wake` kept for convenience: true if anything is pending.
+  return Response.json({ wake: targets.length > 0, targets });
 }
 
 async function handleAck(request, env) {
   const authErr = authenticateEsp32(request, env);
   if (authErr) return authErr;
 
-  await env.WAKE_QUEUE.delete(KV_KEY);
-  return Response.json({ ok: true, message: "Acknowledged" });
+  let target = null;
+  try {
+    const body = await request.json();
+    target = body && body.target ? String(body.target) : null;
+  } catch {
+    // no/invalid body — fall through
+  }
+
+  const pending = await readPending(env);
+
+  if (!target) {
+    // No target specified: clear everything (back-compat).
+    await env.WAKE_QUEUE.delete(KV_KEY);
+    return Response.json({ ok: true, message: "Acknowledged all" });
+  }
+
+  delete pending[target];
+  if (Object.keys(pending).length === 0) {
+    await env.WAKE_QUEUE.delete(KV_KEY);
+  } else {
+    await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify(pending));
+  }
+
+  return Response.json({ ok: true, message: `Acknowledged ${target}` });
 }
