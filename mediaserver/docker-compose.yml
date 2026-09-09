@@ -36,20 +36,6 @@ services:
       - 7878:7878
     restart: unless-stopped
 
-  lidarr:
-    image: lscr.io/linuxserver/lidarr:latest
-    container_name: lidarr
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Zurich
-    volumes:
-      - lidarr_config:/config
-      - ${ROOT_MEDIA_PATH}:/data
-    ports:
-      - 8686:8686
-    restart: unless-stopped
-
   bazarr:
     image: lscr.io/linuxserver/bazarr:latest
     container_name: bazarr
@@ -158,7 +144,6 @@ volumes:
   mediaserver_sonarr_config:
     external: true
   radarr_config:
-  lidarr_config:
   bazarr_config:
   prowlarr_config:
   profilarr_config:

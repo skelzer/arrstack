@@ -26,8 +26,16 @@ foreach ($v in $volumes) {
     }
 }
 
+# host-side configs that live outside Docker: native NZBGet + the env files (tunnel token, telegram)
+$hostFiles = @('C:\ProgramData\NZBGet\nzbget.conf', (Join-Path $PSScriptRoot '.env'), (Join-Path $PSScriptRoot '..\pc\.env')) | Where-Object { Test-Path $_ }
+try {
+    $zip = Join-Path $Dest "host-configs-$Stamp.zip"
+    Compress-Archive -Path $hostFiles -DestinationPath $zip -Force
+    Log "ok   host configs ($($hostFiles.Count) files) -> $(Split-Path $zip -Leaf)"
+} catch { Log "FAIL host configs: $($_.Exception.Message)"; $failed++ }
+
 # retention
-Get-ChildItem $Dest -Filter '*.tgz' | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) } | ForEach-Object {
+Get-ChildItem $Dest | Where-Object { $_.Extension -in '.tgz','.zip' -and $_.LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) } | ForEach-Object {
     Remove-Item $_.FullName -Force; Log "pruned $($_.Name)"
 }
 
