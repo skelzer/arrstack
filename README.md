@@ -44,6 +44,16 @@ User -> Cloudflare Worker -> Telegram Bot API <- ESP32 -> WoL -> PC -> Cloudflar
 4. Run: `docker compose up -d`
 5. In the Cloudflare dashboard, add a public hostname (e.g. `jellyseerr.yourdomain.com`) pointing to `http://localhost:5055`.
 
+### Part 4: Media Stack (`mediaserver/`)
+
+The *arr stack itself (Sonarr, Radarr, Lidarr, Bazarr, Prowlarr, FlareSolverr, Profilarr, Jellyfin, Seerr, Dozzle).
+
+1. Copy `mediaserver/.env.example` to `mediaserver/.env` and adjust the drive paths.
+2. Run from that folder: `docker compose up -d` (project name is pinned to `mediaserver` so the existing `mediaserver_*` volumes are reused).
+3. Storage layout: `ROOT_MEDIA_PATH` (D:) is mounted as `/data` for downloads and overflow; `LIBRARY_MOVIES` / `LIBRARY_SHOWS` (F:) are mounted over `/data/Radarr` and `/data/Sonarr`, so the container paths never change when media moves between drives.
+4. The download client is a native Windows NZBGet (not a container). Radarr/Sonarr reach it at `host.docker.internal:6789` with a remote path mapping `D:\complete\` -> `/data/complete/`.
+5. `backup-volumes.ps1` tars every `mediaserver_*` volume to `F:ackups\docker-volumes` nightly (Windows scheduled task "ArrStack Volume Backup", 14-day retention).
+
 ---
 
 ## Configuration Variables
