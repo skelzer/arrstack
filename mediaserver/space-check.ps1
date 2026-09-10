@@ -57,10 +57,16 @@ foreach ($svc in $Roots.Keys) {
         $r = $Roots[$svc]
         if ($s.activeDirectory -eq $r.main -and $mainFree -lt $ThresholdGB) {
             $s.activeDirectory = $r.overflow
-            $body = $s | ConvertTo-Json -Depth 10 -Compress
-            Invoke-RestMethod -Uri "$SeerrUrl/settings/$svc/$($s.id)" -Method Put -Headers $hdr -Body $body -ContentType 'application/json' | Out-Null
-            Log "switched Seerr '$($s.name)' default root $($r.main) -> $($r.overflow)"
-            $switched += "$($s.name): $($r.main) -> $($r.overflow)"
+            # Seerr rejects read-only fields in the PUT body
+            $body = ($s | Select-Object -Property * -ExcludeProperty id) | ConvertTo-Json -Depth 10 -Compress
+            try {
+                Invoke-RestMethod -Uri "$SeerrUrl/settings/$svc/$($s.id)" -Method Put -Headers $hdr -Body $body -ContentType 'application/json' -ErrorAction Stop | Out-Null
+                Log "switched Seerr '$($s.name)' default root $($r.main) -> $($r.overflow)"
+                $switched += "$($s.name): $($r.main) -> $($r.overflow)"
+            } catch {
+                Log "FAILED to switch Seerr '$($s.name)': $($_.Exception.Message)"
+                Notify "${MainDrive}: is down to $mainFree GB but switching Seerr '$($s.name)' to $($r.overflow) FAILED: $($_.Exception.Message)"
+            }
         } elseif ($s.activeDirectory -eq $r.overflow -and $overFree -lt $ThresholdGB) {
             Notify "Both drives are low: ${MainDrive}: $mainFree GB, ${Overflow}: $overFree GB. '$($s.name)' is already on the overflow folder. Time to free space or add a disk."
         }
