@@ -54,6 +54,7 @@ The *arr stack itself (Sonarr, Radarr, Bazarr, Prowlarr, FlareSolverr, Profilarr
 4. The download client is a native Windows NZBGet (not a container). Radarr/Sonarr reach it at `host.docker.internal:6789` with a remote path mapping `D:\complete\` -> `/data/complete/`.
 5. `backup-volumes.ps1` tars every `mediaserver_*` volume to `F:ackups\docker-volumes` nightly (Windows scheduled task "ArrStack Volume Backup", 14-day retention).
 6. `space-check.ps1` runs every 6 hours (task "ArrStack Space Check"): when F: drops under 150 GB it switches the Seerr default root folders to the D: overflow folders (`/data/Movies`, `/data/Shows`) and sends a Telegram message via `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` from `.env`. Radarr/Sonarr also refuse imports below 50 GB free.
+7. `sleep-guard.ps1` runs at logon (task "ArrStack Sleep Guard") and holds a Windows power request while any Jellyfin session is playing and not paused, so the PC does not sleep mid-episode while normal sleep stays enabled. Needs `JELLYFIN_API_KEY` in `.env`.
 
 ---
 
