@@ -2,9 +2,9 @@ name = "seerr-gate"
 main = "index.js"
 compatibility_date = "2024-01-01"
 
-# Route the Worker onto the Seerr hostname (replace with your real hostname and zone).
+# Route the Worker onto the Seerr hostname.
 routes = [
-  { pattern = "seerr.example.com/*", zone_name = "example.com" }
+  { pattern = "seer.gloymigue.uk/*", zone_name = "gloymigue.uk" }
 ]
 
 # Same KV namespace as wake-server / wake-api
