@@ -14,8 +14,8 @@ services:
     volumes:
       - mediaserver_sonarr_config:/config
       - ${ROOT_MEDIA_PATH}:/data
-      - ${LIBRARY_MOVIES}:/data/Radarr
-      - ${LIBRARY_SHOWS}:/data/Sonarr
+      - ${OVERFLOW_MOVIES}:/data/Movies
+      - ${OVERFLOW_SHOWS}:/data/Shows
     ports:
       - 8989:8989
     restart: unless-stopped
@@ -30,8 +30,8 @@ services:
     volumes:
       - radarr_config:/config
       - ${ROOT_MEDIA_PATH}:/data
-      - ${LIBRARY_MOVIES}:/data/Radarr
-      - ${LIBRARY_SHOWS}:/data/Sonarr
+      - ${OVERFLOW_MOVIES}:/data/Movies
+      - ${OVERFLOW_SHOWS}:/data/Shows
     ports:
       - 7878:7878
     restart: unless-stopped
@@ -46,8 +46,8 @@ services:
     volumes:
       - bazarr_config:/config
       - ${ROOT_MEDIA_PATH}:/data
-      - ${LIBRARY_MOVIES}:/data/Radarr
-      - ${LIBRARY_SHOWS}:/data/Sonarr
+      - ${OVERFLOW_MOVIES}:/data/Movies
+      - ${OVERFLOW_SHOWS}:/data/Shows
     ports:
       - 6767:6767
     restart: unless-stopped
@@ -104,8 +104,8 @@ services:
     volumes:
       - jellyfin_config:/config
       - ${ROOT_MEDIA_PATH}:/data
-      - ${LIBRARY_MOVIES}:/data/Radarr
-      - ${LIBRARY_SHOWS}:/data/Sonarr
+      - ${OVERFLOW_MOVIES}:/data/Movies
+      - ${OVERFLOW_SHOWS}:/data/Shows
     ports:
       - 8096:8096
     restart: unless-stopped
