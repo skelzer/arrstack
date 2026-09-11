@@ -1,15 +1,15 @@
 # Remote Wake-on-LAN & *arr Stack Access
 
-Remotely wake a media server PC and securely access services (Jellyseerr/Plex) without port forwarding.
+Remotely wake a media server PC and securely access services (Seerr) without port forwarding, plus the Docker *arr stack that runs on it and the scripts that keep it tidy.
 
 ## How It Works
 
-1. **Wake** -- A Cloudflare Worker serves a web page with a "Wake Server" button. Pressing it sends a `/wake` command to a Telegram bot.
-2. **Poll** -- An always-on ESP32 (LilyGO) polls the Telegram Bot API. When it sees `/wake`, it broadcasts a WoL magic packet on the LAN.
-3. **Access** -- The PC boots, starts a Cloudflare Tunnel, and exposes Jellyseerr at `jellyseerr.yourdomain.com`.
+1. **Wake** -- A Cloudflare Worker (`wake-server`, behind Cloudflare Access) serves a page with a "Wake Server" button. Pressing it writes a `wake_pending` flag into a KV namespace and optionally posts a confirmation to Telegram.
+2. **Poll** -- An always-on ESP32 (LilyGO) polls a second, unauthenticated-by-Access Worker (`wake-api`) every 5 seconds with a Bearer secret. `GET /check` returns the flag; when it is set the ESP32 broadcasts a WoL magic packet on the LAN and clears the flag with `POST /ack`.
+3. **Access** -- The PC boots, starts a Cloudflare Tunnel, and exposes Seerr at `seerr.yourdomain.com`.
 
 ```
-User -> Cloudflare Worker -> Telegram Bot API <- ESP32 -> WoL -> PC -> Cloudflare Tunnel -> User
+User -> wake-server Worker -> KV <- wake-api Worker <- ESP32 -> WoL -> PC -> Cloudflare Tunnel -> User
 ```
 
 ---
@@ -19,22 +19,29 @@ User -> Cloudflare Worker -> Telegram Bot API <- ESP32 -> WoL -> PC -> Cloudflar
 ### Part 1: ESP32 Firmware (`esp32/`)
 
 1. Install the Arduino IDE (or PlatformIO).
-2. Install the following libraries via Library Manager:
-   - **UniversalTelegramBot** by Brian Lough
-   - **ArduinoJson** (v6+) by Benoit Blanchon
-3. Copy `esp32/config.example.h` to `esp32/config.h` and fill in your values.
-4. Flash `esp32/esp32_wol.ino` to your LilyGO board.
+2. Install **ArduinoJson** (v6+) by Benoit Blanchon via Library Manager. The rest (`WiFi`, `WiFiClientSecure`, `WiFiUDP`, `HTTPClient`) ships with the ESP32 core.
+3. Copy `esp32/esp32_wol/config.example.h` to `esp32/esp32_wol/config.h` and fill in Wi-Fi, the target MAC, the `wake-api` Worker URL and the shared secret.
+4. Flash `esp32/esp32_wol/esp32_wol.ino` to your LilyGO board.
 
-### Part 2: Cloudflare Worker (`cloudflare-worker/`)
+### Part 2: Cloudflare Workers (`cloudflare-worker/`)
+
+Two Workers share one KV namespace (binding `WAKE_QUEUE`, create it once with `wrangler kv namespace create WAKE_QUEUE` and put its id in both `wrangler.toml` files).
 
 1. Install [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/): `npm i -g wrangler`
 2. Authenticate: `wrangler login`
-3. Set secrets:
+3. `wake-server` (the web page, in `src/`), deployed from `cloudflare-worker/`:
    ```bash
-   wrangler secret put TELEGRAM_BOT_TOKEN
+   wrangler secret put TELEGRAM_BOT_TOKEN   # optional: confirmation message on wake
    wrangler secret put TELEGRAM_CHAT_ID
+   wrangler deploy
    ```
-4. Deploy: `wrangler deploy`
+   Put a Cloudflare Access policy in front of its hostname so only you can press the button.
+4. `wake-api` (what the ESP32 polls), deployed from `cloudflare-worker/api/`:
+   ```bash
+   wrangler secret put ESP32_SECRET          # same value as WORKER_SECRET in config.h
+   wrangler deploy
+   ```
+   This one must **not** be behind Access; it is protected by the Bearer secret only.
 
 ### Part 3: PC Cloudflare Tunnel (`pc/`)
 
@@ -63,11 +70,15 @@ The *arr stack itself (Sonarr, Radarr, Bazarr, Prowlarr, FlareSolverr, Profilarr
 
 | Variable | Where | Description |
 |---|---|---|
-| `WIFI_SSID` | `esp32/config.h` | Your Wi-Fi network name |
-| `WIFI_PASS` | `esp32/config.h` | Your Wi-Fi password |
-| `BOT_TOKEN` | `esp32/config.h` | Telegram Bot token from @BotFather |
-| `CHAT_ID` | `esp32/config.h` | Your Telegram user ID (get from @userinfobot) |
-| `TARGET_MAC` | `esp32/config.h` | MAC address of the PC to wake (AA:BB:CC:DD:EE:FF) |
-| `TELEGRAM_BOT_TOKEN` | Cloudflare Worker secret | Same Telegram Bot token |
-| `TELEGRAM_CHAT_ID` | Cloudflare Worker secret | Same Telegram user ID |
+| `WIFI_SSID` | `esp32/esp32_wol/config.h` | Your Wi-Fi network name |
+| `WIFI_PASS` | `esp32/esp32_wol/config.h` | Your Wi-Fi password |
+| `TARGET_MAC` | `esp32/esp32_wol/config.h` | MAC address of the PC to wake (AA:BB:CC:DD:EE:FF) |
+| `WORKER_URL` | `esp32/esp32_wol/config.h` | URL of the `wake-api` Worker (e.g. `https://wake-api.yourname.workers.dev`) |
+| `WORKER_SECRET` | `esp32/esp32_wol/config.h` | Shared secret sent as a Bearer token to `wake-api` |
+| `ESP32_SECRET` | `wake-api` Worker secret | Same value as `WORKER_SECRET` |
+| `TELEGRAM_BOT_TOKEN` | `wake-server` Worker secret (optional) | Telegram Bot token from @BotFather, for the "wake requested" confirmation |
+| `TELEGRAM_CHAT_ID` | `wake-server` Worker secret (optional) | Your Telegram user ID (get from @userinfobot) |
 | `TUNNEL_TOKEN` | `pc/.env` | Cloudflare Tunnel token |
+| `ROOT_MEDIA_PATH`, `OVERFLOW_MOVIES`, `OVERFLOW_SHOWS` | `mediaserver/.env` | Drive layout for the containers (see Part 4) |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `mediaserver/.env` | Same bot, used by the space watchdog and weekly digest |
+| `JELLYFIN_API_KEY` | `mediaserver/.env` | Jellyfin API key for the sleep guard |
