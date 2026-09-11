@@ -44,6 +44,24 @@ $mainFree = FreeGB $MainDrive
 $overFree = FreeGB $Overflow
 Log "free: ${MainDrive}: $mainFree GB, ${Overflow}: $overFree GB (threshold $ThresholdGB GB)"
 
+# --- stack health: containers up, tunnel connected ---------------------------------------
+$Expected = @('cloudflared-tunnel','seerr','radarr','sonarr','jellyfin','prowlarr','bazarr','profilarr','flaresolverr','dozzle')
+$problems = @()
+$running = @(docker ps --format '{{.Names}}' 2>$null)
+if (-not $running) {
+    $problems += 'Docker is not responding (no containers listed)'
+} else {
+    $down = $Expected | Where-Object { $running -notcontains $_ }
+    if ($down) { $problems += "containers not running: $($down -join ', ')" }
+    try {
+        $ready = Invoke-RestMethod -Uri 'http://127.0.0.1:20241/ready' -TimeoutSec 10
+        if ($ready.status -ne 200 -or [int]$ready.readyConnections -lt 1) { $problems += "cloudflared reports $($ready.readyConnections) ready connections" }
+    } catch { $problems += "cloudflared readiness endpoint not answering ($($_.Exception.Message))" }
+}
+if ($problems.Count) {
+    Notify ("Stack health problem while the PC is awake: " + ($problems -join '; ') + ". Seerr may be unreachable from outside.")
+} else { Log "health ok: $($running.Count) containers up, tunnel connections=$($ready.readyConnections)" }
+
 # --- Seerr ----------------------------------------------------------------------
 try {
     $apiKey = (docker exec seerr cat /app/config/settings.json | ConvertFrom-Json).main.apiKey
