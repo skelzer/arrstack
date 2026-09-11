@@ -42,6 +42,12 @@ Two Workers share one KV namespace (binding `WAKE_QUEUE`, create it once with `w
    wrangler deploy
    ```
    This one must **not** be behind Access; it is protected by the Bearer secret only.
+5. `seerr-gate` (optional auto-wake, in `seerr-gate/`): a Worker routed onto the Seerr hostname. It passes traffic through untouched while the tunnel is up; when Cloudflare reports the tunnel unreachable (PC asleep) it sets the same KV wake flag and serves a "waking up" page that reloads into Seerr once it answers. Edit the `routes` entry in its `wrangler.toml` to your hostname and zone, then from `cloudflare-worker/seerr-gate/`:
+   ```bash
+   wrangler secret put TELEGRAM_BOT_TOKEN   # optional note when a visit triggers a wake
+   wrangler secret put TELEGRAM_CHAT_ID
+   wrangler deploy
+   ```
 
 ### Part 3: PC Cloudflare Tunnel (`pc/`)
 

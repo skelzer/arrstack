@@ -1,0 +1,17 @@
+name = "seerr-gate"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+# Route the Worker onto the Seerr hostname (replace with your real hostname and zone).
+routes = [
+  { pattern = "seerr.example.com/*", zone_name = "example.com" }
+]
+
+# Same KV namespace as wake-server / wake-api
+[[kv_namespaces]]
+binding = "WAKE_QUEUE"
+id = "e3cd3b3b7bbe424e8843057e56309e28"
+
+# Optional secrets (set via `wrangler secret put`), for the "wake queued" Telegram note:
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
