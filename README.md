@@ -49,6 +49,15 @@ Two Workers share one KV namespace (binding `WAKE_QUEUE`, create it once with `w
    wrangler deploy
    ```
 
+### Part 1b (alternative): Router as the wake poller (`router/`)
+
+An Asuswrt-Merlin router can take over the ESP32's job, since it is always on, sits on the LAN and can reach the Worker. Tested target: RT-AX58U in AP mode.
+
+1. Flash [Asuswrt-Merlin](https://www.asuswrt-merlin.net/), then enable **JFFS custom scripts and configs** and **SSH** under Administration > System.
+2. Copy `router/wake-poller.conf.example` to `router/wake-poller.conf` and fill in the Worker URL, the shared secret and the PC's MAC (`router/wake-poller.conf` is git-ignored).
+3. Follow the install block at the top of `router/wake-poller.sh`: it copies the script and config to `/jffs`, hooks it into `services-start` and starts it. It polls `/check` every 5 s, sends the magic packet with `ether-wake`, acknowledges, and logs to the router's System Log.
+4. Both pollers can run side by side during the transition; whichever sees the flag first sends the packet and clears it.
+
 ### Part 3: PC Cloudflare Tunnel (`pc/`)
 
 1. Create a tunnel in the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/).

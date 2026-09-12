@@ -3,6 +3,7 @@ esp32/esp32_wol/config.h
 pc/.env
 mediaserver/.env
 cloudflare-worker/.dev.vars
+router/wake-poller.conf
 
 # Arduino build
 esp32/esp32_wol/build/

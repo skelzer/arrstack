@@ -1,0 +1,6 @@
+# Copy to /jffs/configs/wake-poller.conf on the router (this example is safe to commit; the real one is not).
+WORKER_URL="https://wake-api.yourname.workers.dev"   # the wake-api Worker, same as WORKER_URL in the ESP32 config
+WORKER_SECRET="[INSERT_WORKER_SECRET]"               # same shared secret as ESP32_SECRET / WORKER_SECRET
+TARGET_MAC="AA:BB:CC:DD:EE:FF"                       # the PC's Ethernet MAC
+POLL_SECONDS=5
+LAN_IF=br0
