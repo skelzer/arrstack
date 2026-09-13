@@ -10,15 +10,17 @@
 
 // Machines that can be woken. Each `id` MUST match a target id used by the
 // web UI worker (cloudflare-worker/src/index.js -> TARGETS[].id).
-// MAC format: AA:BB:CC:DD:EE:FF
+//   mac : AA:BB:CC:DD:EE:FF  (used for the broadcast magic packet)
+//   ip  : optional unicast IP, "" to skip. Set this when your Wi-Fi AP drops
+//         broadcast frames — give the PC a DHCP reservation so the IP is stable.
 struct WakeTarget {
   const char* id;
   const char* mac;
+  const char* ip;
 };
 
 const WakeTarget TARGETS[] = {
-  { "server",  "[INSERT_SERVER_MAC]"  },  // media server (Ethernet)
-  { "desktop", "[INSERT_DESKTOP_MAC]" },  // this PC (Ethernet, e.g. 74:56:3C:4E:C8:A8)
+  { "server", "[INSERT_SERVER_MAC]", "[INSERT_SERVER_IP]" },  // media server (Ethernet); ip is optional, "" to skip
 };
 
 const size_t NUM_TARGETS = sizeof(TARGETS) / sizeof(TARGETS[0]);

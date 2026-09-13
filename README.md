@@ -7,8 +7,9 @@ Remotely wake a media server PC and securely access services (Seerr) without por
 1. **Wake** -- A Cloudflare Worker (`wake-server`, behind Cloudflare Access) serves a page with one button per machine. Pressing a button queues a wake for that machine (its `target` id) into the `wake_pending` object in a KV namespace and optionally posts a confirmation to Telegram.
 2. **Poll** -- An always-on ESP32 (LilyGO) polls a second, unauthenticated-by-Access Worker (`wake-api`) every 5 seconds with a Bearer secret. `GET /check` returns the pending targets; for each one the ESP32 looks up that machine's MAC, broadcasts a WoL magic packet on the LAN, and clears it with `POST /ack`.
 3. **Access** -- The PC boots, starts a Cloudflare Tunnel, and exposes Seerr at `seerr.yourdomain.com`.
+4. **Status** -- The PC runs `mediaserver/status-push.ps1`, which every 2 min posts free space on the library drives, what Jellyfin is playing and its poster (a 60x90 JPEG) to `wake-api` (`POST /status`). The ESP32 gets it back in the same `GET /check` reply and shows it on the T-Display: server state (UP / ASLEEP / WAKING), F: and D: free GB, the current title and its poster. The record expires after 10 minutes, so once the PC sleeps the display reads ASLEEP.
 
-> **Adding a machine:** add a `{ id, mac }` entry to `TARGETS` in `esp32/config.h`, add a matching entry to `TARGETS` (and a button) in `cloudflare-worker/src/index.js`, then re-flash the ESP32 and redeploy the worker. The machine must be on the wired LAN with Wake-on-LAN enabled in BIOS and its NIC.
+> **Adding a machine:** add a `{ id, mac, ip }` entry to `TARGETS` in `esp32/esp32_wol/config.h` (`ip` is optional: give the machine a DHCP reservation and set it so the ESP32 also sends the magic packet as unicast, which gets through Wi-Fi APs that drop broadcast frames), add a matching entry to `TARGETS` (and a button) in `cloudflare-worker/src/index.js`, then re-flash the ESP32 and redeploy the worker. The machine must be on the wired LAN with Wake-on-LAN enabled in BIOS and its NIC.
 
 ```
 User -> wake-server Worker -> KV <- wake-api Worker <- ESP32 -> WoL -> PC -> Cloudflare Tunnel -> User
@@ -21,9 +22,10 @@ User -> wake-server Worker -> KV <- wake-api Worker <- ESP32 -> WoL -> PC -> Clo
 ### Part 1: ESP32 Firmware (`esp32/`)
 
 1. Install the Arduino IDE (or PlatformIO).
-2. Install **ArduinoJson** (v6+) by Benoit Blanchon via Library Manager. The rest (`WiFi`, `WiFiClientSecure`, `WiFiUDP`, `HTTPClient`) ships with the ESP32 core.
-3. Copy `esp32/esp32_wol/config.example.h` to `esp32/esp32_wol/config.h` and fill in Wi-Fi, the wake targets (an `id` + MAC per machine), the `wake-api` Worker URL and the shared secret.
-4. Flash `esp32/esp32_wol/esp32_wol.ino` to your LilyGO board.
+2. Install **ArduinoJson** (v6+) by Benoit Blanchon and **TJpg_Decoder** by Bodmer via Library Manager. The rest (`WiFi`, `WiFiClientSecure`, `WiFiUDP`, `HTTPClient`) ships with the ESP32 core.
+3. Install **TFT_eSPI** by Bodmer. In its `User_Setup_Select.h`, comment out `#include <User_Setup.h>` and uncomment `#include <User_Setups/Setup25_TTGO_T_Display.h>` (the T-Display pin map).
+4. Copy `esp32/esp32_wol/config.example.h` to `esp32/esp32_wol/config.h` and fill in Wi-Fi, the wake targets (an `id` + MAC per machine), the `wake-api` Worker URL and the shared secret.
+5. Flash `esp32/esp32_wol/esp32_wol.ino` to the T-Display.
 
 ### Part 2: Cloudflare Workers (`cloudflare-worker/`)
 
@@ -82,6 +84,7 @@ The *arr stack itself (Sonarr, Radarr, Bazarr, Prowlarr, FlareSolverr, Profilarr
 9. `monthly-update.ps1` (task "ArrStack Monthly Update", 1st of the month 05:00) pulls all images for `mediaserver/` and `pc/`, recreates containers whose image changed, prunes old images, runs health checks and posts the result to Telegram. `-DryRun` only reports which images have updates.
 7. `sleep-guard.ps1` runs at logon (task "ArrStack Sleep Guard") and holds a Windows power request while any Jellyfin session is playing and not paused, so the PC does not sleep mid-episode while normal sleep stays enabled. Needs `JELLYFIN_API_KEY` in `.env`.
 8. `weekly-digest.ps1` sends a Telegram summary every Sunday (task "ArrStack Weekly Digest"): movies and episodes added, Seerr requests per user, free space, Tdarr savings, backup and watchdog activity. Seerr also notifies via Telegram on request/approval/availability; Radarr and Sonarr only on health issues.
+11. `status-push.ps1` runs at logon (task "ArrStack Status Push") and every 2 min posts F:/D: free space, the Jellyfin sessions that are playing and the poster of the first one to the `wake-api` Worker for the LilyGO display. Needs `WAKE_API_URL`, `WAKE_API_SECRET` and `JELLYFIN_API_KEY` in `.env`. It stops with the PC, which is how the display knows the server is asleep.
 
 ---
 
@@ -91,7 +94,7 @@ The *arr stack itself (Sonarr, Radarr, Bazarr, Prowlarr, FlareSolverr, Profilarr
 |---|---|---|
 | `WIFI_SSID` | `esp32/esp32_wol/config.h` | Your Wi-Fi network name |
 | `WIFI_PASS` | `esp32/esp32_wol/config.h` | Your Wi-Fi password |
-| `TARGETS[]` | `esp32/esp32_wol/config.h` | List of `{ id, mac }` machines to wake. Each `id` must match a button target in `wake-server` (e.g. `server`, `desktop`). |
+| `TARGETS[]` | `esp32/esp32_wol/config.h` | List of `{ id, mac, ip }` machines to wake (`ip` optional, for a unicast magic packet). Each `id` must match a button target in `wake-server` (currently just `server`). |
 | `WORKER_URL` | `esp32/esp32_wol/config.h` | URL of the `wake-api` Worker (e.g. `https://wake-api.yourname.workers.dev`) |
 | `WORKER_SECRET` | `esp32/esp32_wol/config.h` | Shared secret sent as a Bearer token to `wake-api` |
 | `ESP32_SECRET` | `wake-api` Worker secret | Same value as `WORKER_SECRET` |
@@ -101,3 +104,4 @@ The *arr stack itself (Sonarr, Radarr, Bazarr, Prowlarr, FlareSolverr, Profilarr
 | `ROOT_MEDIA_PATH`, `OVERFLOW_MOVIES`, `OVERFLOW_SHOWS` | `mediaserver/.env` | Drive layout for the containers (see Part 4) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `mediaserver/.env` | Same bot, used by the space watchdog and weekly digest |
 | `JELLYFIN_API_KEY` | `mediaserver/.env` | Jellyfin API key for the sleep guard |
+| `WAKE_API_URL`, `WAKE_API_SECRET` | `mediaserver/.env` | `wake-api` Worker URL and its `ESP32_SECRET`, used by `status-push.ps1` |

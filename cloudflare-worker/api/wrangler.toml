@@ -7,4 +7,4 @@ binding = "WAKE_QUEUE"
 id = "e3cd3b3b7bbe424e8843057e56309e28"
 
 # Secrets (set via `wrangler secret put`):
-#   ESP32_SECRET  - shared secret so only the ESP32 can poll /check and /ack
+#   ESP32_SECRET  - shared secret for the ESP32 (/check, /ack) and the PC status push (/status)
