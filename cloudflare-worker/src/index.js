@@ -4,7 +4,6 @@ const KV_KEY = "wake_pending";
 // Machines that can be woken. `id` must match a target id in the ESP32 config.
 const TARGETS = [
   { id: "server",  label: "Media Server" },
-  { id: "desktop", label: "Desktop (this PC)" },
 ];
 
 export default {
@@ -55,6 +54,10 @@ async function handleWake(request, env) {
       } catch {
         // ignore corrupt value, start fresh
       }
+    }
+    // Legacy single-flag shape ({ requested: true, timestamp }) -> pending "server" wake.
+    if (pending.requested === true) {
+      pending = { server: pending.timestamp || Date.now() };
     }
     pending[target] = Date.now();
     await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify(pending));
@@ -171,10 +174,9 @@ const HTML_PAGE = `<!DOCTYPE html>
 <body>
   <div class="card">
     <h1>Wake Server</h1>
-    <p class="subtitle">Send a Wake-on-LAN magic packet to a machine.</p>
+    <p class="subtitle">Send a Wake-on-LAN magic packet to the media server.</p>
     <div class="buttons">
       <button data-target="server"  data-label="Media Server"      onclick="wake(this)">Wake Media Server</button>
-      <button data-target="desktop" data-label="Desktop (this PC)" onclick="wake(this)">Wake Desktop</button>
     </div>
     <p id="status" class="status"></p>
   </div>

@@ -3,14 +3,16 @@
 // Every request is passed through to the origin (the Cloudflare Tunnel on the PC).
 // When the tunnel is down because the PC is asleep, Cloudflare answers 530 (error 1033)
 // or a 52x. In that case this Worker:
-//   1. sets the same `wake_pending` flag the Wake Server page sets (the ESP32 polls it
-//      through the wake-api Worker and sends the magic packet),
+//   1. queues a wake for the `server` target in the same `wake_pending` KV object the
+//      Wake Server page uses (the ESP32 polls it through the wake-api Worker and sends
+//      the magic packet),
 //   2. optionally posts a Telegram note,
 //   3. serves a "waking up" page that polls until Seerr answers, then reloads.
 // Runs behind the same Cloudflare Access policy as the hostname, so only allowed users
 // can trigger a wake by visiting.
 
 const KV_KEY = "wake_pending";
+const WAKE_TARGET = "server"; // target id of the media server in wake-server / config.h TARGETS
 const REARM_AFTER_MS = 5 * 60 * 1000; // re-set a stale flag if the PC still isn't up after 5 min
 const DOWN_STATUSES = new Set([530, 521, 522, 523, 524]);
 
@@ -50,12 +52,25 @@ export default {
 
 async function queueWake(env) {
   try {
+    // KV holds an object of pending wakes: { "<target>": <timestamp>, ... } (shared with
+    // wake-server / wake-api). Merge into it so another target's queued wake is not clobbered.
     const raw = await env.WAKE_QUEUE.get(KV_KEY);
+    let pending = {};
     if (raw) {
-      const data = JSON.parse(raw);
-      if (Date.now() - (data.timestamp || 0) < REARM_AFTER_MS) return; // already pending, don't spam
+      try {
+        const data = JSON.parse(raw);
+        if (data && typeof data === "object") pending = data;
+      } catch {
+        // corrupt value: start fresh
+      }
     }
-    await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify({ requested: true, timestamp: Date.now(), source: "seerr-gate" }));
+    // Legacy single-flag shape ({ requested: true, timestamp }) -> pending "server" wake.
+    if (pending.requested === true) {
+      pending = { [WAKE_TARGET]: pending.timestamp || Date.now() };
+    }
+    if (Date.now() - (pending[WAKE_TARGET] || 0) < REARM_AFTER_MS) return; // already pending, don't spam
+    pending[WAKE_TARGET] = Date.now();
+    await env.WAKE_QUEUE.put(KV_KEY, JSON.stringify(pending));
 
     const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = env;
     if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
