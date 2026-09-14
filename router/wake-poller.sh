@@ -16,11 +16,12 @@
 
 CONF=/jffs/configs/wake-poller.conf
 [ -f "$CONF" ] || { logger -t wake-poller "missing $CONF"; exit 1; }
-. "$CONF"   # WORKER_URL, WORKER_SECRET, TARGET_MAC, optional POLL_SECONDS, LAN_IF
+. "$CONF"   # WORKER_URL, WORKER_SECRET, TARGET_MAC, optional TARGET_ID, POLL_SECONDS, LAN_IF
 
 POLL_SECONDS=${POLL_SECONDS:-5}
 LAN_IF=${LAN_IF:-br0}
-logger -t wake-poller "started: url=$WORKER_URL mac=$TARGET_MAC every ${POLL_SECONDS}s"
+TARGET_ID=${TARGET_ID:-server}   # target id in wake-server / wake-api (the KV object is keyed by it)
+logger -t wake-poller "started: url=$WORKER_URL target=$TARGET_ID mac=$TARGET_MAC every ${POLL_SECONDS}s"
 
 while true; do
     resp=$(curl -s -m 8 -H "Authorization: Bearer $WORKER_SECRET" "$WORKER_URL/check" 2>/dev/null)
@@ -29,7 +30,7 @@ while true; do
             # busybox ether-wake sends the magic packet as a broadcast on the given interface
             ether-wake -i "$LAN_IF" -b "$TARGET_MAC" 2>/dev/null || ether-wake -i "$LAN_IF" "$TARGET_MAC"
             logger -t wake-poller "wake requested -> magic packet sent to $TARGET_MAC"
-            curl -s -m 8 -X POST -H "Authorization: Bearer $WORKER_SECRET" -H "Content-Type: application/json" -d '{}' "$WORKER_URL/ack" >/dev/null 2>&1 \
+            curl -s -m 8 -X POST -H "Authorization: Bearer $WORKER_SECRET" -H "Content-Type: application/json" -d "{\"target\":\"$TARGET_ID\"}" "$WORKER_URL/ack" >/dev/null 2>&1 \
                 && logger -t wake-poller "acknowledged" || logger -t wake-poller "ack failed"
             ;;
     esac
